@@ -1,0 +1,287 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: propchain_postgres
+    environment:
+      POSTGRES_DB: propchain_dev
+      POSTGRES_USER: propchain
+      POSTGRES_PASSWORD: dev_password_123
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+      - ./database/seed:/seed-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U propchain -d propchain_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - propchain_network
+
+  # Redis for Session Management
+  redis:
+    image: redis:7-alpine
+    container_name: propchain_redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass dev_redis_123
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - propchain_network
+
+  # LocalStack for AWS Services (SQS, S3, etc)
+  localstack:
+    image: localstack/localstack:2.3
+    container_name: propchain_localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3,sqs,secretsmanager,sts,iam
+      DEBUG: 1
+      DOCKER_HOST: unix:///var/run/docker.sock
+      DEFAULT_REGION: eu-west-2
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./localstack/init:/etc/localstack/init/ready.d
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - propchain_network
+
+  # MinIO for S3-compatible Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: propchain_minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - propchain_network
+
+  # API Mock Server
+  api_server:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.dev
+    container_name: propchain_api
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://propchain:dev_password_123@postgres:5432/propchain_dev
+      REDIS_URL: redis://:dev_redis_123@redis:6379
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: eu-west-2
+      S3_BUCKET: propchain-dev-documents
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/propchain-dev-tasks
+      JWT_SECRET: dev_jwt_secret_key_very_long_and_secure_123456789
+      CORS_ORIGIN: http://localhost:3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+      - /app/node_modules
+      - uploads_data:/app/uploads
+    restart: unless-stopped
+    networks:
+      - propchain_network
+
+  # Frontend Development Server
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: propchain_frontend
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      REACT_APP_API_URL: http://localhost:3000
+      REACT_APP_AUTH_URL: http://localhost:3002
+      CHOKIDAR_USEPOLLING: true
+      WDS_SOCKET_HOST: localhost
+      WDS_SOCKET_PORT: 3001
+    depends_on:
+      - api_server
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    stdin_open: true
+    tty: true
+    networks:
+      - propchain_network
+
+  # Mock Authentication Service
+  auth_mock:
+    build:
+      context: ./auth-mock
+      dockerfile: Dockerfile
+    container_name: propchain_auth_mock
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: development
+      JWT_SECRET: dev_jwt_secret_key_very_long_and_secure_123456789
+      REDIS_URL: redis://:dev_redis_123@redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./auth-mock:/app
+      - /app/node_modules
+    networks:
+      - propchain_network
+
+  # Background Job Worker
+  worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.worker
+    container_name: propchain_worker
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://propchain:dev_password_123@postgres:5432/propchain_dev
+      REDIS_URL: redis://:dev_redis_123@redis:6379
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: eu-west-2
+      S3_BUCKET: propchain-dev-documents
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/propchain-dev-tasks
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+      - /app/node_modules
+      - uploads_data:/app/uploads
+    restart: unless-stopped
+    networks:
+      - propchain_network
+
+  # NGINX Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: propchain_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf
+      - ./nginx/certs:/etc/nginx/certs
+    depends_on:
+      - api_server
+      - frontend
+      - auth_mock
+    networks:
+      - propchain_network
+
+  # Prometheus Metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: propchain_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.dev.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/prometheus/alerts:/etc/prometheus/alerts
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - propchain_network
+
+  # Grafana Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: propchain_grafana
+    ports:
+      - "3003:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - propchain_network
+
+  # Adminer for Database Management
+  adminer:
+    image: adminer:latest
+    container_name: propchain_adminer
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    networks:
+      - propchain_network
+
+  # MailCatcher for Email Testing
+  mailcatcher:
+    image: schickling/mailcatcher
+    container_name: propchain_mailcatcher
+    ports:
+      - "1080:1080"
+      - "1025:1025"
+    networks:
+      - propchain_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  localstack_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+  uploads_data:
+
+networks:
+  propchain_network:
+    driver: bridge
+    name: propchain_network

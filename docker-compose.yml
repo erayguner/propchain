@@ -1,0 +1,434 @@
+version: '3.8'
+
+# Property Upkeep Records System - Local Development Environment
+# This docker-compose file provides a complete local development environment
+# with all necessary services for the Property Upkeep Records system.
+
+networks:
+  propchain-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  localstack_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  uploads:
+    driver: local
+
+services:
+  # Reverse Proxy / Load Balancer
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: propchain-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      - ./docker/nginx/templates:/etc/nginx/templates:ro
+    environment:
+      - NGINX_ENVSUBST_TEMPLATE_DIR=/etc/nginx/templates
+      - NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
+      - API_HOST=backend-api
+      - API_PORT=3000
+      - FRONTEND_HOST=frontend
+      - FRONTEND_PORT=3000
+    depends_on:
+      - backend-api
+      - frontend
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API Service
+  backend-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+      target: development
+    container_name: propchain-api
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DATABASE_URL=postgresql://propchain_user:propchain_pass@postgres:5432/propchain_db
+      - REDIS_URL=redis://redis:6379
+      - SQS_ENDPOINT=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - JWT_SECRET=dev_jwt_secret_key_change_in_production
+      - JWT_EXPIRES_IN=15m
+      - REFRESH_TOKEN_EXPIRES_IN=30d
+      - FILE_STORAGE_PATH=/app/uploads
+      - FILE_STORAGE_BASE_URL=http://localhost/api/v1/files
+      - CORS_ORIGIN=http://localhost:3001
+      # Observability
+      - PROMETHEUS_ENABLED=true
+      - PROMETHEUS_PORT=9464
+      - LOG_LEVEL=debug
+      - LOG_FORMAT=json
+      # Queue processing
+      - QUEUE_CONCURRENCY=5
+      - QUEUE_RETRY_ATTEMPTS=3
+      - QUEUE_RETRY_DELAY=5000
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - uploads:/app/uploads
+    ports:
+      - "3000:3000"
+      - "9464:9464" # Prometheus metrics
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port=9464"
+      - "prometheus.path=/metrics"
+
+  # Background Workers
+  backend-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+      target: development
+    container_name: propchain-worker
+    command: ["npm", "run", "worker"]
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://propchain_user:propchain_pass@postgres:5432/propchain_db
+      - REDIS_URL=redis://redis:6379
+      - SQS_ENDPOINT=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - FILE_STORAGE_PATH=/app/uploads
+      - LOG_LEVEL=debug
+      - LOG_FORMAT=json
+      # Worker-specific config
+      - WORKER_CONCURRENCY=3
+      - WORKER_POLL_INTERVAL=5000
+      - DOCUMENT_PROCESSING_ENABLED=true
+      - NOTIFICATION_PROCESSING_ENABLED=true
+      - REPORT_GENERATION_ENABLED=true
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      backend-api:
+        condition: service_healthy
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'node.*worker' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+      target: development
+    container_name: propchain-frontend
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_BASE_URL=http://localhost/api/v1
+      - REACT_APP_WS_URL=ws://localhost/ws
+      - REACT_APP_SENTRY_DSN=
+      - REACT_APP_VERSION=${APP_VERSION:-dev}
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3001:3000"
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: propchain-postgres
+    environment:
+      - POSTGRES_DB=propchain_db
+      - POSTGRES_USER=propchain_user
+      - POSTGRES_PASSWORD=propchain_pass
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U propchain_user -d propchain_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+
+  # Redis Cache & Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: propchain-redis
+    command: >
+      redis-server
+      --requirepass redis_password_dev
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+      --appendonly yes
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "6379:6379"
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_password_dev", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # LocalStack for AWS Services (SQS, S3)
+  localstack:
+    image: localstack/localstack:3.0
+    container_name: propchain-localstack
+    environment:
+      - SERVICES=sqs,s3,secretsmanager
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - DATA_DIR=/tmp/localstack/data
+      - HOST_TMP_FOLDER=${TMPDIR:-/tmp}/localstack
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - DEBUG=1
+    volumes:
+      - localstack_data:/tmp/localstack
+      - ./docker/localstack/init:/etc/localstack/init/ready.d:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "4566:4566"
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  # Prometheus Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: propchain-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=1GB'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/alerts:/etc/prometheus/alerts:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend-api
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana Dashboards
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: propchain-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-clock-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MailHog for Email Testing
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: propchain-mailhog
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    networks:
+      - propchain-network
+    restart: unless-stopped
+
+  # PgAdmin for Database Management (optional)
+  pgadmin:
+    image: dpage/pgadmin4:7.8
+    container_name: propchain-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@propchain.local
+      - PGADMIN_DEFAULT_PASSWORD=admin123
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    volumes:
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    profiles:
+      - tools
+
+  # Adminer - Lightweight Database Management (alternative to PgAdmin)
+  adminer:
+    image: adminer:4.8.1
+    container_name: propchain-adminer
+    ports:
+      - "8081:8080"
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    profiles:
+      - tools
+
+  # Node Exporter for System Metrics
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: propchain-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9100:9100"
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # cAdvisor for Container Metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: propchain-cadvisor
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8082:8080"
+    networks:
+      - propchain-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    devices:
+      - /dev/kmsg
+
+# Health check for the entire stack
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 40s

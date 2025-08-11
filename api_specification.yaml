@@ -1,0 +1,1718 @@
+openapi: 3.0.3
+info:
+  title: Property Upkeep Records API
+  description: |
+    REST API for Property Upkeep Records System - A comprehensive solution for tracking property maintenance, repairs, and improvements.
+    
+    ## Authentication
+    This API uses JWT Bearer tokens for authentication. Include the token in the Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+    
+    ## Multi-tenancy
+    All data is isolated by organization. Users can only access data for organizations they belong to.
+    
+    ## Rate Limiting
+    API requests are rate limited to 100 requests per minute per user.
+    
+    ## Pagination
+    List endpoints support cursor-based pagination with `limit` and `cursor` parameters.
+  version: 1.0.0
+  contact:
+    name: Property Upkeep Records API Support
+    email: support@propertyupkeep.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.propertyupkeep.com/v1
+    description: Production server
+  - url: https://staging-api.propertyupkeep.com/v1
+    description: Staging server
+  - url: http://localhost:3000/api/v1
+    description: Local development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  # Authentication endpoints
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Authenticate user
+      description: Authenticate user with email and password, returning JWT tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "manager@demo.com"
+                password:
+                  type: string
+                  format: password
+                  example: "SecurePassword123!"
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Use refresh token to get a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        '200':
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Logout user
+      description: Invalidate current refresh token
+      responses:
+        '204':
+          description: Successfully logged out
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # User endpoints
+  /users/me:
+    get:
+      tags:
+        - Users
+      summary: Get current user profile
+      description: Retrieve the current authenticated user's profile information
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Organization endpoints
+  /organizations:
+    get:
+      tags:
+        - Organizations
+      summary: List organizations
+      description: List all organizations the current user has access to
+      responses:
+        '200':
+          description: List of organizations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Organization'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /organizations/{organizationId}:
+    get:
+      tags:
+        - Organizations
+      summary: Get organization details
+      description: Retrieve details for a specific organization
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Property endpoints
+  /properties:
+    get:
+      tags:
+        - Properties
+      summary: List properties
+      description: List all properties for the current user's organization
+      parameters:
+        - name: search
+          in: query
+          description: Search properties by name or address
+          schema:
+            type: string
+            example: "Oak Street"
+        - name: property_type
+          in: query
+          description: Filter by property type
+          schema:
+            $ref: '#/components/schemas/PropertyType'
+        - name: is_active
+          in: query
+          description: Filter by active status
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: List of properties
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Property'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Properties
+      summary: Create property
+      description: Create a new property
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PropertyCreate'
+      responses:
+        '201':
+          description: Property created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /properties/{propertyId}:
+    get:
+      tags:
+        - Properties
+      summary: Get property details
+      description: Retrieve details for a specific property
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+      responses:
+        '200':
+          description: Property details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Properties
+      summary: Update property
+      description: Update an existing property
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PropertyUpdate'
+      responses:
+        '200':
+          description: Property updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    delete:
+      tags:
+        - Properties
+      summary: Delete property
+      description: Soft delete a property (sets deleted_at timestamp)
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+      responses:
+        '204':
+          description: Property deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Work Log endpoints
+  /properties/{propertyId}/work-logs:
+    get:
+      tags:
+        - Work Logs
+      summary: List work logs for property
+      description: List all work logs for a specific property
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+        - name: status
+          in: query
+          description: Filter by work log status
+          schema:
+            $ref: '#/components/schemas/WorkStatus'
+        - name: category
+          in: query
+          description: Filter by work log category
+          schema:
+            $ref: '#/components/schemas/WorkCategory'
+        - name: priority
+          in: query
+          description: Filter by work log priority
+          schema:
+            $ref: '#/components/schemas/WorkPriority'
+        - name: assigned_to
+          in: query
+          description: Filter by assigned user ID
+          schema:
+            type: string
+            format: uuid
+        - name: from_date
+          in: query
+          description: Filter work logs from this date
+          schema:
+            type: string
+            format: date
+            example: "2024-01-01"
+        - name: to_date
+          in: query
+          description: Filter work logs to this date
+          schema:
+            type: string
+            format: date
+            example: "2024-12-31"
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: List of work logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkLog'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags:
+        - Work Logs
+      summary: Create work log
+      description: Create a new work log for a property
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkLogCreate'
+      responses:
+        '201':
+          description: Work log created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkLog'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /work-logs/{workLogId}:
+    get:
+      tags:
+        - Work Logs
+      summary: Get work log details
+      description: Retrieve details for a specific work log
+      parameters:
+        - $ref: '#/components/parameters/WorkLogId'
+      responses:
+        '200':
+          description: Work log details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkLog'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Work Logs
+      summary: Update work log
+      description: Update an existing work log with optimistic locking
+      parameters:
+        - $ref: '#/components/parameters/WorkLogId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkLogUpdate'
+      responses:
+        '200':
+          description: Work log updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkLog'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    delete:
+      tags:
+        - Work Logs
+      summary: Delete work log
+      description: Soft delete a work log
+      parameters:
+        - $ref: '#/components/parameters/WorkLogId'
+      responses:
+        '204':
+          description: Work log deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Document endpoints
+  /work-logs/{workLogId}/documents:
+    get:
+      tags:
+        - Documents
+      summary: List work log documents
+      description: List all documents attached to a work log
+      parameters:
+        - $ref: '#/components/parameters/WorkLogId'
+        - name: document_type
+          in: query
+          description: Filter by document type
+          schema:
+            $ref: '#/components/schemas/DocumentType'
+      responses:
+        '200':
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Document'
+
+    post:
+      tags:
+        - Documents
+      summary: Upload documents
+      description: Upload one or more documents for a work log
+      parameters:
+        - $ref: '#/components/parameters/WorkLogId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  maxItems: 10
+                description:
+                  type: string
+                  description: Optional description for the uploaded documents
+                  maxLength: 500
+      responses:
+        '201':
+          description: Documents uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Document'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: File too large
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /documents/{documentId}:
+    get:
+      tags:
+        - Documents
+      summary: Get document details
+      description: Retrieve metadata for a specific document
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: Document details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Documents
+      summary: Delete document
+      description: Soft delete a document
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '204':
+          description: Document deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /documents/{documentId}/download:
+    get:
+      tags:
+        - Documents
+      summary: Download document
+      description: Download the actual document file
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+        - name: thumbnail
+          in: query
+          description: Download thumbnail instead of full file
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Document file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            image/*:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Reports endpoints
+  /reports/work-summary:
+    get:
+      tags:
+        - Reports
+      summary: Work summary report
+      description: Generate a summary report of work logs with various filters and groupings
+      parameters:
+        - name: property_id
+          in: query
+          description: Filter by specific property
+          schema:
+            type: string
+            format: uuid
+        - name: from_date
+          in: query
+          description: Filter work logs from this date
+          schema:
+            type: string
+            format: date
+            example: "2024-01-01"
+        - name: to_date
+          in: query
+          description: Filter work logs to this date
+          schema:
+            type: string
+            format: date
+            example: "2024-12-31"
+        - name: category
+          in: query
+          description: Filter by work log category
+          schema:
+            $ref: '#/components/schemas/WorkCategory'
+        - name: status
+          in: query
+          description: Filter by work log status
+          schema:
+            $ref: '#/components/schemas/WorkStatus'
+        - name: group_by
+          in: query
+          description: Group results by field
+          schema:
+            type: string
+            enum: [property, category, status, month]
+            default: property
+        - name: format
+          in: query
+          description: Response format
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+      responses:
+        '200':
+          description: Work summary report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkSummaryReport'
+            text/csv:
+              schema:
+                type: string
+                example: |
+                  Property Name,Category,Status,Count,Total Cost,Avg Cost
+                  Oak Street Apartments,MAINTENANCE,COMPLETED,15,2500.00,166.67
+                  Oak Street Apartments,REPAIR,COMPLETED,8,1200.00,150.00
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /reports/cost-analysis:
+    get:
+      tags:
+        - Reports
+      summary: Cost analysis report
+      description: Generate a detailed cost analysis report with trends and insights
+      parameters:
+        - name: property_id
+          in: query
+          description: Filter by specific property
+          schema:
+            type: string
+            format: uuid
+        - name: from_date
+          in: query
+          required: true
+          description: Analysis start date
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          required: true
+          description: Analysis end date
+          schema:
+            type: string
+            format: date
+        - name: period
+          in: query
+          description: Group by time period
+          schema:
+            type: string
+            enum: [month, quarter, year]
+            default: month
+        - name: format
+          in: query
+          description: Response format
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+      responses:
+        '200':
+          description: Cost analysis report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostAnalysisReport'
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # Asset endpoints
+  /properties/{propertyId}/assets:
+    get:
+      tags:
+        - Assets
+      summary: List property assets
+      description: List all assets for a specific property
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+        - name: asset_type
+          in: query
+          description: Filter by asset type
+          schema:
+            $ref: '#/components/schemas/AssetType'
+        - name: warranty_expiring
+          in: query
+          description: Filter assets with warranty expiring within specified days
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            example: 30
+      responses:
+        '200':
+          description: List of assets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Asset'
+
+    post:
+      tags:
+        - Assets
+      summary: Create asset
+      description: Create a new asset for a property
+      parameters:
+        - $ref: '#/components/parameters/PropertyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetCreate'
+      responses:
+        '201':
+          description: Asset created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # Health check endpoints
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Check if the API service is healthy
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  version:
+                    type: string
+                    example: "1.0.0"
+
+  /health/ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness check
+      description: Check if the API service is ready to accept requests
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ready"
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        example: "connected"
+                      queue:
+                        type: string
+                        example: "connected"
+        '503':
+          description: Service is not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "not_ready"
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        example: "disconnected"
+                      queue:
+                        type: string
+                        example: "connected"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained from /auth/login
+
+  parameters:
+    OrganizationId:
+      name: organizationId
+      in: path
+      required: true
+      description: Organization ID
+      schema:
+        type: string
+        format: uuid
+        example: "00000000-0000-4000-8000-000000000001"
+
+    PropertyId:
+      name: propertyId
+      in: path
+      required: true
+      description: Property ID
+      schema:
+        type: string
+        format: uuid
+        example: "00000000-0000-4000-8000-000000000001"
+
+    WorkLogId:
+      name: workLogId
+      in: path
+      required: true
+      description: Work log ID
+      schema:
+        type: string
+        format: uuid
+
+    DocumentId:
+      name: documentId
+      in: path
+      required: true
+      description: Document ID
+      schema:
+        type: string
+        format: uuid
+
+    Limit:
+      name: limit
+      in: query
+      description: Number of items to return (max 100)
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    Cursor:
+      name: cursor
+      in: query
+      description: Pagination cursor for next page
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "bad_request"
+            message: "Invalid request format"
+            details:
+              field: "email"
+              code: "invalid_format"
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "unauthorized"
+            message: "Authentication required"
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "forbidden"
+            message: "Insufficient permissions to access this resource"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "not_found"
+            message: "Resource not found"
+
+    Conflict:
+      description: Resource conflict (optimistic locking)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "conflict"
+            message: "Resource was modified by another user"
+            details:
+              current_version: 5
+              provided_version: 4
+
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+
+  schemas:
+    # Enums
+    UserRole:
+      type: string
+      enum: [OWNER, MANAGER, TENANT, AUDITOR]
+
+    PropertyType:
+      type: string
+      enum: [RESIDENTIAL, COMMERCIAL, MIXED_USE]
+
+    AssetType:
+      type: string
+      enum: [HVAC, ELEVATOR, PLUMBING, ELECTRICAL, OTHER]
+
+    WorkCategory:
+      type: string
+      enum: [MAINTENANCE, REPAIR, IMPROVEMENT, INSPECTION]
+
+    WorkPriority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+
+    WorkStatus:
+      type: string
+      enum: [PLANNED, IN_PROGRESS, COMPLETED, CANCELLED]
+
+    DocumentType:
+      type: string
+      enum: [PHOTO, PDF, TEXT, VIDEO, OTHER]
+
+    # Core entities
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+          maxLength: 100
+        last_name:
+          type: string
+          maxLength: 100
+        phone:
+          type: string
+          maxLength: 20
+          nullable: true
+        is_active:
+          type: boolean
+        email_verified:
+          type: boolean
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [id, email, first_name, last_name, is_active, email_verified, created_at, updated_at]
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        type:
+          type: string
+          maxLength: 50
+        settings:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [id, name, type, settings, created_at, updated_at]
+
+    Property:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        address:
+          $ref: '#/components/schemas/Address'
+        property_type:
+          $ref: '#/components/schemas/PropertyType'
+        metadata:
+          type: object
+          additionalProperties: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+      required: [id, organization_id, name, address, property_type, is_active, created_at, updated_at]
+
+    PropertyCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: "Oak Street Apartments"
+        address:
+          $ref: '#/components/schemas/Address'
+        property_type:
+          $ref: '#/components/schemas/PropertyType'
+        metadata:
+          type: object
+          additionalProperties: true
+          example:
+            bedrooms: 24
+            units: 12
+            year_built: 1995
+      required: [name, address, property_type]
+
+    PropertyUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        address:
+          $ref: '#/components/schemas/Address'
+        property_type:
+          $ref: '#/components/schemas/PropertyType'
+        metadata:
+          type: object
+          additionalProperties: true
+        is_active:
+          type: boolean
+
+    Address:
+      type: object
+      properties:
+        street:
+          type: string
+          maxLength: 255
+          example: "123 Oak Street"
+        street2:
+          type: string
+          maxLength: 255
+          nullable: true
+          example: "Apt 4B"
+        city:
+          type: string
+          maxLength: 100
+          example: "London"
+        state:
+          type: string
+          maxLength: 100
+          nullable: true
+          example: "England"
+        postcode:
+          type: string
+          maxLength: 20
+          example: "SW1A 1AA"
+        country:
+          type: string
+          maxLength: 100
+          example: "United Kingdom"
+        latitude:
+          type: number
+          format: float
+          nullable: true
+        longitude:
+          type: number
+          format: float
+          nullable: true
+      required: [street, city, postcode, country]
+
+    Asset:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        type:
+          $ref: '#/components/schemas/AssetType'
+        manufacturer:
+          type: string
+          maxLength: 255
+          nullable: true
+        model:
+          type: string
+          maxLength: 255
+          nullable: true
+        serial_number:
+          type: string
+          maxLength: 255
+          nullable: true
+        installation_date:
+          type: string
+          format: date
+          nullable: true
+        warranty_expires:
+          type: string
+          format: date
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+      required: [id, property_id, name, type, created_at, updated_at]
+
+    AssetCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: "Main HVAC Unit"
+        type:
+          $ref: '#/components/schemas/AssetType'
+        manufacturer:
+          type: string
+          maxLength: 255
+          example: "Carrier"
+        model:
+          type: string
+          maxLength: 255
+          example: "50VL020"
+        serial_number:
+          type: string
+          maxLength: 255
+          example: "CV123456789"
+        installation_date:
+          type: string
+          format: date
+          example: "2020-01-15"
+        warranty_expires:
+          type: string
+          format: date
+          example: "2025-01-15"
+        metadata:
+          type: object
+          additionalProperties: true
+          example:
+            capacity: "20 tons"
+            efficiency_rating: "SEER 16"
+      required: [name, type]
+
+    WorkLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        category:
+          $ref: '#/components/schemas/WorkCategory'
+        priority:
+          $ref: '#/components/schemas/WorkPriority'
+        status:
+          $ref: '#/components/schemas/WorkStatus'
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
+        scheduled_date:
+          type: string
+          format: date-time
+          nullable: true
+        completed_date:
+          type: string
+          format: date-time
+          nullable: true
+        estimated_cost:
+          type: number
+          format: float
+          nullable: true
+        actual_cost:
+          type: number
+          format: float
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          description: Version for optimistic locking
+      required: [id, organization_id, property_id, title, category, priority, status, created_by, created_at, updated_at, version]
+
+    WorkLogCreate:
+      type: object
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+          maxLength: 255
+          example: "HVAC Quarterly Maintenance"
+        description:
+          type: string
+          example: "Routine quarterly maintenance including filter replacement and system inspection"
+        category:
+          $ref: '#/components/schemas/WorkCategory'
+        priority:
+          $ref: '#/components/schemas/WorkPriority'
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
+        scheduled_date:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2024-03-15T10:00:00Z"
+        estimated_cost:
+          type: number
+          format: float
+          nullable: true
+          example: 500.00
+        notes:
+          type: string
+          nullable: true
+      required: [title, category, priority]
+
+    WorkLogUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/WorkCategory'
+        priority:
+          $ref: '#/components/schemas/WorkPriority'
+        status:
+          $ref: '#/components/schemas/WorkStatus'
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
+        scheduled_date:
+          type: string
+          format: date-time
+          nullable: true
+        completed_date:
+          type: string
+          format: date-time
+          nullable: true
+        estimated_cost:
+          type: number
+          format: float
+          nullable: true
+        actual_cost:
+          type: number
+          format: float
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        version:
+          type: integer
+          description: Current version for optimistic locking
+      required: [version]
+
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        work_log_id:
+          type: string
+          format: uuid
+          nullable: true
+        property_id:
+          type: string
+          format: uuid
+          nullable: true
+        filename:
+          type: string
+        original_filename:
+          type: string
+        mime_type:
+          type: string
+        file_size:
+          type: integer
+          format: int64
+        storage_path:
+          type: string
+        document_type:
+          $ref: '#/components/schemas/DocumentType'
+        metadata:
+          type: object
+          additionalProperties: true
+        is_processed:
+          type: boolean
+        download_url:
+          type: string
+          format: uri
+          description: Pre-signed URL for downloading the document
+        thumbnail_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Pre-signed URL for downloading thumbnail (if available)
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+      required: [id, organization_id, filename, original_filename, mime_type, file_size, document_type, is_processed, download_url, created_by, created_at]
+
+    # Authentication schemas
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        refresh_token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        expires_in:
+          type: integer
+          example: 900
+          description: Access token expiration time in seconds
+        token_type:
+          type: string
+          example: "Bearer"
+        user:
+          $ref: '#/components/schemas/User'
+      required: [access_token, refresh_token, expires_in, token_type, user]
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        expires_in:
+          type: integer
+        token_type:
+          type: string
+          example: "Bearer"
+      required: [access_token, expires_in, token_type]
+
+    # Report schemas
+    WorkSummaryReport:
+      type: object
+      properties:
+        summary:
+          type: object
+          properties:
+            total_work_logs:
+              type: integer
+            total_cost:
+              type: number
+              format: float
+            average_cost:
+              type: number
+              format: float
+            completion_rate:
+              type: number
+              format: float
+              description: Percentage of completed work logs
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              group_key:
+                type: string
+                description: The grouping field value
+              work_count:
+                type: integer
+              total_cost:
+                type: number
+                format: float
+              average_cost:
+                type: number
+                format: float
+              completed_count:
+                type: integer
+              critical_count:
+                type: integer
+        filters:
+          type: object
+          description: Applied filters for the report
+
+    CostAnalysisReport:
+      type: object
+      properties:
+        summary:
+          type: object
+          properties:
+            total_cost:
+              type: number
+              format: float
+            period_count:
+              type: integer
+              description: Number of periods in the analysis
+            average_per_period:
+              type: number
+              format: float
+            trend:
+              type: string
+              enum: [increasing, decreasing, stable]
+        periods:
+          type: array
+          items:
+            type: object
+            properties:
+              period:
+                type: string
+                example: "2024-03"
+              work_count:
+                type: integer
+              total_cost:
+                type: number
+                format: float
+              average_cost:
+                type: number
+                format: float
+              by_category:
+                type: object
+                additionalProperties:
+                  type: number
+                  format: float
+        filters:
+          type: object
+          description: Applied filters for the analysis
+
+    # Utility schemas
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Total number of items
+        limit:
+          type: integer
+          description: Number of items per page
+        has_more:
+          type: boolean
+          description: Whether there are more items available
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page
+      required: [total, limit, has_more]
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error code
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          nullable: true
+          description: Additional error details
+        request_id:
+          type: string
+          description: Unique request identifier for debugging
+      required: [error, message]
+
+    ValidationError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "validation_error"
+        message:
+          type: string
+          example: "One or more fields are invalid"
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: Field name with validation error
+              code:
+                type: string
+                description: Validation error code
+              message:
+                type: string
+                description: Human-readable validation error message
+            required: [field, code, message]
+        request_id:
+          type: string
+      required: [error, message, details]
+
+tags:
+  - name: Authentication
+    description: User authentication and token management
+  - name: Users
+    description: User profile management
+  - name: Organizations
+    description: Organization management
+  - name: Properties
+    description: Property management operations
+  - name: Work Logs
+    description: Work log management and tracking
+  - name: Documents
+    description: Document upload and management
+  - name: Assets
+    description: Property asset management
+  - name: Reports
+    description: Reporting and analytics
+  - name: Health
+    description: Service health and readiness checks

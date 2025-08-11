@@ -1,0 +1,189 @@
+# API Service Alerts for Property Upkeep Records
+groups:
+  - name: propchain-api-alerts
+    interval: 30s
+    rules:
+      # High Error Rate
+      - alert: HighAPIErrorRate
+        expr: |
+          (
+            rate(http_requests_total{job="propchain-api", status=~"5.."}[5m]) /
+            rate(http_requests_total{job="propchain-api"}[5m])
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          service: propchain-api
+          category: availability
+        annotations:
+          summary: "High API error rate detected"
+          description: "API error rate is {{ $value | humanizePercentage }} over the last 5 minutes (threshold: 5%)"
+          runbook_url: "https://runbooks.propchain.com/api-high-error-rate"
+          dashboard_url: "http://grafana:3000/d/api-overview"
+
+      # High Response Time
+      - alert: HighAPIResponseTime
+        expr: |
+          histogram_quantile(0.95, 
+            rate(http_request_duration_seconds_bucket{job="propchain-api"}[5m])
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          service: propchain-api
+          category: performance
+        annotations:
+          summary: "High API response time detected"
+          description: "95th percentile response time is {{ $value }}s (threshold: 2s)"
+          runbook_url: "https://runbooks.propchain.com/api-high-latency"
+          dashboard_url: "http://grafana:3000/d/api-performance"
+
+      # API Service Down
+      - alert: APIServiceDown
+        expr: up{job="propchain-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: propchain-api
+          category: availability
+        annotations:
+          summary: "API service is down"
+          description: "Propchain API service has been down for more than 1 minute"
+          runbook_url: "https://runbooks.propchain.com/api-service-down"
+          dashboard_url: "http://grafana:3000/d/api-overview"
+
+      # High Memory Usage
+      - alert: HighAPIMemoryUsage
+        expr: |
+          (
+            process_resident_memory_bytes{job="propchain-api"} / 1024 / 1024 / 1024
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          service: propchain-api
+          category: resource
+        annotations:
+          summary: "High API memory usage"
+          description: "API service memory usage is {{ $value | humanize }}GB (threshold: 1GB)"
+          runbook_url: "https://runbooks.propchain.com/api-high-memory"
+          dashboard_url: "http://grafana:3000/d/api-resources"
+
+      # High CPU Usage
+      - alert: HighAPICPUUsage
+        expr: |
+          rate(process_cpu_seconds_total{job="propchain-api"}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: propchain-api
+          category: resource
+        annotations:
+          summary: "High API CPU usage"
+          description: "API service CPU usage is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook_url: "https://runbooks.propchain.com/api-high-cpu"
+          dashboard_url: "http://grafana:3000/d/api-resources"
+
+      # Database Connection Pool Exhaustion
+      - alert: DatabaseConnectionPoolExhaustion
+        expr: |
+          pg_pool_connections_active{job="propchain-api"} / 
+          pg_pool_connections_max{job="propchain-api"} > 0.8
+        for: 2m
+        labels:
+          severity: critical
+          service: propchain-api
+          category: database
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "Database connection pool usage is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook_url: "https://runbooks.propchain.com/db-connection-pool"
+          dashboard_url: "http://grafana:3000/d/database-overview"
+
+      # Queue Depth Too High
+      - alert: HighQueueDepth
+        expr: |
+          queue_depth{job="propchain-api"} > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: propchain-api
+          category: queue
+        annotations:
+          summary: "High queue depth detected"
+          description: "Queue depth is {{ $value }} messages (threshold: 100)"
+          runbook_url: "https://runbooks.propchain.com/high-queue-depth"
+          dashboard_url: "http://grafana:3000/d/queue-overview"
+
+  - name: propchain-business-alerts
+    interval: 60s
+    rules:
+      # Failed Document Uploads
+      - alert: HighDocumentUploadFailures
+        expr: |
+          rate(document_upload_failures_total[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: propchain-api
+          category: business
+        annotations:
+          summary: "High document upload failure rate"
+          description: "Document upload failure rate is {{ $value }} per second"
+          runbook_url: "https://runbooks.propchain.com/document-upload-failures"
+
+      # Authentication Failures
+      - alert: HighAuthenticationFailures
+        expr: |
+          rate(auth_failures_total[5m]) > 0.2
+        for: 3m
+        labels:
+          severity: warning
+          service: propchain-api
+          category: security
+        annotations:
+          summary: "High authentication failure rate"
+          description: "Authentication failure rate is {{ $value }} per second"
+          runbook_url: "https://runbooks.propchain.com/auth-failures"
+
+      # Work Log Creation Anomaly
+      - alert: WorkLogCreationAnomaly
+        expr: |
+          rate(work_logs_created_total[1h]) < 0.5 * rate(work_logs_created_total[1h] offset 1d)
+        for: 30m
+        labels:
+          severity: info
+          service: propchain-api
+          category: business
+        annotations:
+          summary: "Work log creation rate unusually low"
+          description: "Current work log creation rate is significantly lower than usual"
+
+  - name: propchain-external-alerts
+    interval: 60s
+    rules:
+      # External API Failures
+      - alert: HighExternalAPIFailures
+        expr: |
+          rate(external_api_failures_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          service: propchain-api
+          category: external
+        annotations:
+          summary: "High external API failure rate"
+          description: "External API failure rate is {{ $value }} per second"
+
+      # Email Delivery Failures
+      - alert: HighEmailDeliveryFailures
+        expr: |
+          rate(email_failures_total[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: propchain-api
+          category: external
+        annotations:
+          summary: "High email delivery failure rate"
+          description: "Email delivery failure rate is {{ $value }} per second"

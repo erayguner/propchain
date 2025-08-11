@@ -1,0 +1,146 @@
+# Property Upkeep Records System - Terraform Variables Example
+# Copy this file to terraform.tfvars and customize the values
+
+# Basic Configuration
+aws_region   = "eu-west-2"  # London region
+environment  = "development"
+project_name = "propchain"
+owner        = "devops-team"
+
+# Networking
+vpc_cidr = "10.0.0.0/16"
+
+# Database Configuration
+db_name                 = "propchain_db"
+db_username            = "propchain_user"
+db_instance_class      = "db.t3.micro"      # For development/testing
+# db_instance_class    = "db.t3.small"      # For staging
+# db_instance_class    = "db.r6g.large"     # For production
+db_allocated_storage    = 20
+db_max_allocated_storage = 100
+enable_multi_az        = false              # Set to true for production
+
+# Redis Configuration
+redis_node_type = "cache.t3.micro"          # For development/testing
+# redis_node_type = "cache.t3.small"        # For staging
+# redis_node_type = "cache.r6g.large"       # For production
+
+# Application Configuration
+app_image_tag        = "latest"
+app_min_capacity     = 1
+app_max_capacity     = 3
+app_desired_capacity = 1
+
+# ECS Configuration (if using containers)
+ecs_cpu    = 512                             # 0.5 vCPU
+ecs_memory = 1024                            # 1GB RAM
+
+# Auto Scaling
+scale_up_threshold   = 70
+scale_down_threshold = 30
+
+# Monitoring and Alerting
+alert_email_addresses = [
+  "devops@yourcompany.com",
+  "alerts@yourcompany.com"
+]
+enable_monitoring = true
+
+# SSL Configuration (optional)
+# domain_name = "api.yourcompany.com"
+# certificate_arn = "arn:aws:acm:eu-west-2:123456789012:certificate/12345678-1234-1234-1234-123456789012"
+
+# Security
+allowed_cidr_blocks = ["0.0.0.0/0"]         # Restrict this in production
+enable_encryption   = true
+
+# Feature Flags
+enable_waf               = false             # Enable for production
+enable_backup_schedule   = true
+enable_cloudfront        = false
+enable_spot_instances    = false            # Enable for cost optimization
+enable_kubernetes        = false            # For future migration
+
+# Log Configuration
+log_retention_days = 14                     # 30+ for production
+enable_debug_logging = true                 # false for production
+
+# Backup Configuration
+backup_retention_period = 7                 # 30+ for production
+backup_window          = "03:00-04:00"
+maintenance_window     = "sun:04:00-sun:05:00"
+
+# Performance
+enable_performance_insights      = true
+performance_insights_retention   = 7
+
+# Cost Optimization
+spot_instance_percentage = 0                # 50 for non-critical workloads
+
+# Queue Configuration
+sqs_visibility_timeout  = 300               # 5 minutes
+sqs_max_receive_count   = 3
+
+# S3 Configuration
+s3_lifecycle_enabled      = true
+s3_ia_transition_days     = 90
+s3_glacier_transition_days = 365
+
+# Development Settings
+skip_final_snapshot = true                  # false for production
+
+# Compliance (optional)
+enable_config     = false                   # true for compliance requirements
+enable_cloudtrail = false                   # true for audit requirements
+
+# Cross-region backup (optional)
+enable_cross_region_backup = false
+backup_region             = "eu-west-1"
+
+# CloudFront CDN (optional)
+cloudfront_price_class = "PriceClass_100"
+
+# Kubernetes (future migration)
+kubernetes_version = "1.28"
+
+# Environment-specific overrides
+# Uncomment and modify based on your environment
+
+## Development Environment
+# db_instance_class = "db.t3.micro"
+# redis_node_type = "cache.t3.micro"
+# app_desired_capacity = 1
+# log_retention_days = 7
+# backup_retention_period = 3
+# enable_debug_logging = true
+# skip_final_snapshot = true
+
+## Staging Environment
+# environment = "staging"
+# db_instance_class = "db.t3.small"
+# redis_node_type = "cache.t3.small"
+# app_min_capacity = 1
+# app_max_capacity = 5
+# app_desired_capacity = 2
+# log_retention_days = 14
+# backup_retention_period = 7
+# enable_debug_logging = false
+# skip_final_snapshot = false
+
+## Production Environment
+# environment = "production"
+# db_instance_class = "db.r6g.large"
+# redis_node_type = "cache.r6g.large"
+# enable_multi_az = true
+# app_min_capacity = 2
+# app_max_capacity = 20
+# app_desired_capacity = 4
+# log_retention_days = 30
+# backup_retention_period = 30
+# enable_debug_logging = false
+# skip_final_snapshot = false
+# enable_waf = true
+# enable_cloudfront = true
+# enable_config = true
+# enable_cloudtrail = true
+# allowed_cidr_blocks = ["10.0.0.0/8", "172.16.0.0/12"]

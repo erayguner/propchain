@@ -1,0 +1,206 @@
+# Property Upkeep Records System - Alerting Rules
+
+groups:
+  - name: propchain_api_alerts
+    rules:
+      # High error rate alert
+      - alert: HighAPIErrorRate
+        expr: rate(http_requests_total{job="propchain-api",status_code=~"5.."}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: "High error rate detected in Property Upkeep API"
+          description: "API error rate is {{ $value }} errors/sec for the last 5 minutes"
+          runbook_url: "https://docs.propchain.com/runbooks/high-error-rate"
+
+      # Slow response time alert
+      - alert: SlowAPIResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="propchain-api"}[5m])) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "Slow API response time"
+          description: "95th percentile response time is {{ $value }}s"
+          runbook_url: "https://docs.propchain.com/runbooks/slow-response"
+
+      # API service down
+      - alert: APIServiceDown
+        expr: up{job="propchain-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: "Property Upkeep API service is down"
+          description: "API service has been down for more than 2 minutes"
+          runbook_url: "https://docs.propchain.com/runbooks/service-down"
+
+      # High memory usage
+      - alert: HighAPIMemoryUsage
+        expr: (container_memory_usage_bytes{name="propchain-api"} / container_spec_memory_limit_bytes{name="propchain-api"}) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "High memory usage in API service"
+          description: "API service memory usage is {{ $value }}%"
+
+      # High CPU usage
+      - alert: HighAPICPUUsage
+        expr: rate(container_cpu_usage_seconds_total{name="propchain-api"}[5m]) * 100 > 80
+        for: 15m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "High CPU usage in API service"
+          description: "API service CPU usage is {{ $value }}%"
+
+  - name: propchain_database_alerts
+    rules:
+      # Database connection issues
+      - alert: DatabaseConnectionHigh
+        expr: pg_stat_database_numbackends{datname="propchain_db"} > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "High number of database connections"
+          description: "Database has {{ $value }} active connections"
+
+      # Database slow queries
+      - alert: DatabaseSlowQueries
+        expr: rate(pg_stat_statements_mean_time_ms[5m]) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "Average query time is {{ $value }}ms"
+
+      # Database down
+      - alert: DatabaseDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "Database has been unreachable for more than 1 minute"
+          runbook_url: "https://docs.propchain.com/runbooks/database-down"
+
+  - name: propchain_queue_alerts
+    rules:
+      # Queue backlog alert
+      - alert: QueueBacklog
+        expr: propchain_queue_messages_pending > 100
+        for: 15m
+        labels:
+          severity: warning
+          service: queue
+        annotations:
+          summary: "Queue backlog detected"
+          description: "{{ $labels.queue_name }} has {{ $value }} pending messages"
+          runbook_url: "https://docs.propchain.com/runbooks/queue-backlog"
+
+      # Dead letter queue messages
+      - alert: DeadLetterQueueMessages
+        expr: propchain_queue_dlq_messages > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: queue
+        annotations:
+          summary: "Messages in dead letter queue"
+          description: "{{ $labels.queue_name }} DLQ has {{ $value }} messages"
+          runbook_url: "https://docs.propchain.com/runbooks/dlq-messages"
+
+      # Worker processing failure rate
+      - alert: HighWorkerFailureRate
+        expr: rate(propchain_worker_failures_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: worker
+        annotations:
+          summary: "High worker failure rate"
+          description: "Worker failure rate is {{ $value }} failures/sec"
+
+  - name: propchain_infrastructure_alerts
+    rules:
+      # Disk space alert
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/var/lib/postgresql/data"} / node_filesystem_size_bytes{mountpoint="/var/lib/postgresql/data"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          service: infrastructure
+        annotations:
+          summary: "Low disk space on database volume"
+          description: "Database volume has less than 10% free space remaining"
+          runbook_url: "https://docs.propchain.com/runbooks/low-disk-space"
+
+      # High system load
+      - alert: HighSystemLoad
+        expr: node_load1 > 2
+        for: 10m
+        labels:
+          severity: warning
+          service: infrastructure
+        annotations:
+          summary: "High system load"
+          description: "System load is {{ $value }}"
+
+      # Container restart alert
+      - alert: ContainerRestarting
+        expr: increase(container_last_seen{name=~"propchain-.*"}[1h]) > 3
+        for: 0m
+        labels:
+          severity: warning
+          service: infrastructure
+        annotations:
+          summary: "Container restarting frequently"
+          description: "{{ $labels.name }} has restarted {{ $value }} times in the last hour"
+
+  - name: propchain_business_alerts
+    rules:
+      # Low user activity (business metric)
+      - alert: LowUserActivity
+        expr: rate(propchain_user_logins_total[1h]) < 0.01
+        for: 30m
+        labels:
+          severity: info
+          service: business
+        annotations:
+          summary: "Low user activity detected"
+          description: "User login rate is {{ $value }} logins/hour"
+
+      # Failed document processing
+      - alert: DocumentProcessingFailures
+        expr: rate(propchain_document_processing_failures_total[10m]) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          service: business
+        annotations:
+          summary: "High document processing failure rate"
+          description: "Document processing failure rate is {{ $value }} failures/sec"
+
+      # Work log creation rate drop
+      - alert: WorkLogCreationDrop
+        expr: rate(propchain_work_logs_created_total[1h]) < 0.001
+        for: 2h
+        labels:
+          severity: info
+          service: business
+        annotations:
+          summary: "Work log creation rate has dropped"
+          description: "Work log creation rate is {{ $value }} logs/hour"
